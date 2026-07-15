@@ -1,0 +1,2 @@
+{:lint-as {mhscare.store/defrecord clojure.core/defrecord}
+ :linters {:missing-docstring {:level :off}}}
