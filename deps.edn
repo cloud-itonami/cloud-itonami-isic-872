@@ -1,8 +1,29 @@
 {:paths ["src" "test"]
+ ;; langgraph brings langchain transitively (both zero-/single-dep,
+ ;; all .cljc -> portable to JVM / SCI / ClojureScript / GraalVM). It lives
+ ;; in the kotoba-lang org of this workspace. This repo is standalone
+ ;; (forkable outside the workspace); the :local/root path only resolves
+ ;; inside the monorepo checkout -- a standalone fork should override it
+ ;; with git coordinates (see `io.github.kotoba-lang/langgraph`'s own
+ ;; `deps.edn`, which pins `langchain` via `:git/sha` for exactly this
+ ;; reason).
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
-        org.clojure/clojurescript {:mvn/version "1.10.914"}}
+        org.clojure/clojurescript {:mvn/version "1.10.914"}
+        io.github.kotoba-lang/langgraph
+        {:local/root "../../kotoba-lang/langgraph"}}
  :aliases
- {:dev {}
-  :test {:extra-paths ["test"]}
-  :lint {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2024.12.10"}}}
+ {;; offline workspace dev -- pin transitive langchain to local checkout
+  :dev {:override-deps
+        {io.github.kotoba-lang/langchain
+         {:local/root "../../kotoba-lang/langchain"}}}
+  :test {:extra-paths ["test"]
+         :extra-deps {io.github.cognitect-labs/test-runner
+                      {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts ["-m" "cognitect.test-runner"]
+         :exec-fn cognitect.test-runner.api/test}
+  ;; static analysis -- clj-kondo from deps (no binary), errors fail CI.
+  :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
+         :main-opts    ["-m" "clj-kondo.main"
+                        "--lint" "src" "test"
+                        "--fail-level" "error"]}
   :run {:exec-fn mhscare.sim/run-demo}}}
