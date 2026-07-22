@@ -32,7 +32,7 @@ clojure -M:dev:test
 clojure -M:lint
 
 # Run demo
-clojure -M:run
+clojure -X:run
 ```
 
 ## Test suite

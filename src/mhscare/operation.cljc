@@ -1,123 +1,197 @@
 (ns mhscare.operation
-  "The langgraph-clj StateGraph orchestrating a single proposal workflow:
-  intake → advise → govern → decide → {commit | hold | escalate}.
+  "OperationActor -- one residential-care coordination proposal = one
+  supervised actor run, expressed as a REAL compiled `langgraph-clj`
+  `StateGraph` (`langgraph.graph/state-graph` + `compile-graph`). The
+  advisor (MhsCareAdvisor) is sealed into a single node (`:advise`);
+  its proposal is ALWAYS routed through the independent
+  `MhsCareGovernor` (`:govern`) and the rollout phase gate (`:decide`)
+  before anything commits to the SSoT.
 
-  One run = one proposal, no unbounded internal loops. Human sign-off
-  is coordinated via `interrupt-before` checkpoints."
-  (:require [mhscare.store :as store]
+  This repo's `deps.edn` previously declared NO `langgraph` dependency
+  at all -- not even under an unused `:dev` override, worse than the
+  usual gap in this fleet -- and this namespace's own former docstring
+  claimed \"The langgraph-clj StateGraph orchestrating a single
+  proposal workflow\" directly above a plain hand-rolled
+  `run-proposal` function that, tellingly, said the quiet part out
+  loud in its OWN comment: \"Simple workflow runner for testing (not
+  using langgraph-clj StateGraph machinery yet)\". Worse: `run-proposal`
+  never even called the `intake-node` function it defined --
+  `intake-state` built a state map with `:decision :pending` and
+  `run-proposal`'s own `(if (= (:decision state) :hold) ...)` check
+  was permanently dead code, so `intake-node`'s required-field
+  validation never actually ran on any real call path (the missing-
+  field case happened to still surface as a HOLD anyway, via the
+  Governor's own resident-unverified check on a nil resident-id --
+  see `test-invalid-request-holds`). Both gaps are now genuinely
+  wired: `deps.edn` has a real top-level `io.github.kotoba-lang/langgraph`
+  dependency, and `:intake` is a real, reachable first node in the
+  compiled graph.
+
+  State machine:
+  intake -+-> advise -> govern -> decide -+-> commit
+          |                               +-> escalate -> request-approval -+-> commit
+          +-> hold (invalid request)                                        +-> hold
+                                           +-> hold (governor HARD violation
+                                                     or phase does not allow)
+
+  Everything the actor depends on is injected, so each is a swap, not
+  a rewrite:
+    - the Store        (`mhscare.store/MemStore`, or any `Store` impl)
+    - the Advisor impl (`:mock` today; `mhscare.advisor/advise`'s
+                         second arm is already the real-LLM injection
+                         point -- see its docstring)
+    - the Phase        (0->3 rollout; passed per-request via
+                         `:phase-num`, not frozen at `build` time --
+                         matches the old `run-proposal`'s call-time
+                         `phase-num` argument)
+
+  One graph run = one residential-care coordination proposal. No
+  unbounded inner loop -- each run is auditable and checkpointed.
+  Every escalated/committed/held decision fact lands in
+  `mhscare.store`'s append-only ledger (`store/append-ledger!`) --
+  this call was ALREADY genuinely wired (not dead code) in the
+  pre-graph node functions (`commit-node`/`escalate-node`/
+  `hold-node`), and that wiring, along with each fact's exact shape,
+  is preserved here unchanged.
+
+  Human-in-the-loop = GENUINELY NEW: the pre-graph `escalate-node` was
+  a dead end -- it logged a `:proposal-escalated` fact and stopped;
+  there was no mechanism anywhere in this repo for an escalated
+  proposal to ever actually be approved-and-committed, or explicitly
+  rejected-and-held. `interrupt-before #{:request-approval}` now
+  pauses the actor at the `:request-approval` node (reached via the
+  real `:escalate` node, which still logs `:proposal-escalated`
+  first, exactly as before) until a human clinician/coordinator
+  resumes it with a decision. `:flag-safety-concern` ALWAYS reaches
+  this node -- see `mhscare.governor/always-escalate-ops` and
+  `mhscare.phase`'s independent agreement (never a member of any
+  phase's `:auto` set either)."
+  (:require [langgraph.graph :as g]
+            [langgraph.checkpoint :as cp]
             [mhscare.advisor :as advisor]
             [mhscare.governor :as governor]
-            [mhscare.phase :as phase]))
+            [mhscare.phase :as phase]
+            [mhscare.store :as store]))
 
-;; ----------------------------- workflow state -----------------------------
+;; ============================================================================
+;; Compiled StateGraph
+;; ============================================================================
 
-(defn intake-state
-  "Initial state for a proposal request."
-  [request]
-  {:request request
-   :proposal nil
-   :check-result nil
-   :decision :pending
-   :reason nil})
+(defn build
+  "Compiles an OperationActor graph bound to `store`. opts:
+    :advisor-impl -- passed to `mhscare.advisor/advise` (default: :mock)
+    :checkpointer -- a `langgraph.checkpoint/Checkpointer`
+                     (default: in-memory `cp/mem-checkpointer`)
 
-;; ----------------------------- workflow nodes -----------------------------
+  The compiled graph's input map: `{:request .. :phase-num ..}` (phase
+  is per-request, not frozen at `build` time -- matches the old
+  `run-proposal`'s call-time `phase-num` argument)."
+  [store & [{:keys [advisor-impl checkpointer]
+             :or   {advisor-impl :mock
+                    checkpointer (cp/mem-checkpointer)}}]]
+  (-> (g/state-graph
+       {:channels
+        {:request      {:default nil}
+         :phase-num    {:default 0}
+         :proposal     {:default nil}
+         :check-result {:default nil}
+         :decision     {:default nil}
+         :reason       {:default nil}
+         :approval     {:default nil}
+         :execution    {:default nil}}})
 
-(defn intake-node
-  "Entry point: validate request shape."
-  [state store _ctx]
-  (let [request (:request state)
-        required [:op :resident-id]]
-    (if (every? #(contains? request %) required)
-      state
-      (assoc state :decision :hold :reason "Invalid request: missing required fields"))))
+      (g/add-node :intake
+        (fn [{:keys [request]}]
+          (let [required [:op :resident-id]]
+            (if (every? #(contains? request %) required)
+              {}
+              {:decision :hold :reason "Invalid request: missing required fields"}))))
 
-(defn advise-node
-  "Call the advisor to draft a proposal."
-  [state store advisor-impl _ctx]
-  (let [request (:request state)
-        proposal (advisor/advise advisor-impl store request)]
-    (assoc state :proposal proposal)))
+      (g/add-node :advise
+        (fn [{:keys [request]}]
+          {:proposal (advisor/advise advisor-impl store request)}))
 
-(defn govern-node
-  "Apply governor checks to the proposal."
-  [state store _ctx]
-  (let [request (:request state)
-        proposal (:proposal state)
-        check-result (governor/check request :production proposal store)]
-    (assoc state :check-result check-result)))
+      (g/add-node :govern
+        (fn [{:keys [request proposal]}]
+          {:check-result (governor/check request :production proposal store)}))
 
-(defn decide-node
-  "Decide: commit (auto), escalate (human), or hold (error)."
-  [state store phase-num _ctx]
-  (let [check-result (:check-result state)
-        proposal (:proposal state)
-        op (:op proposal)
-        hard-violations? (:hard? check-result)
-        escalate? (:escalate? check-result)]
-    (cond
-      hard-violations?
-      (assoc state :decision :hold :reason "Governor HARD check failed")
+      (g/add-node :decide
+        (fn [{:keys [proposal check-result phase-num]}]
+          (let [op               (:op proposal)
+                hard-violations? (:hard? check-result)
+                escalate?        (:escalate? check-result)]
+            (cond
+              ;; HARD governor violations are a permanent block --
+              ;; NEVER routed through human approval, straight to :hold.
+              hard-violations?
+              {:decision :hold :reason "Governor HARD check failed"}
 
-      escalate?
-      (assoc state :decision :escalate :reason "Requires human approval")
+              escalate?
+              {:decision :escalate :reason "Requires human approval"}
 
-      (phase/can-auto-commit? op phase-num)
-      (assoc state :decision :commit :reason "Clean + phase permits auto-commit")
+              (phase/can-auto-commit? op phase-num)
+              {:decision :commit :reason "Clean + phase permits auto-commit"}
 
-      :else
-      (assoc state :decision :escalate :reason "Phase does not permit auto-commit"))))
+              :else
+              {:decision :escalate :reason "Phase does not permit auto-commit"}))))
 
-(defn commit-node
-  "Record the decision to the store."
-  [state store _ctx]
-  (let [decision (:decision state)]
-    (if (= decision :commit)
-      (let [proposal (:proposal state)
-            record {:proposal proposal :decision :committed :timestamp (System/currentTimeMillis)}]
-        (store/commit-record! store record)
-        (store/append-ledger! store {:op :proposal-committed :record record})
-        (assoc state :execution :committed))
-      state)))
+      (g/add-node :escalate
+        (fn [{:keys [proposal]}]
+          (store/append-ledger! store {:op :proposal-escalated
+                                        :proposal proposal
+                                        :timestamp (System/currentTimeMillis)})
+          {:execution :escalated}))
 
-(defn escalate-node
-  "Log escalation to human (no auto-action)."
-  [state store _ctx]
-  (let [decision (:decision state)]
-    (if (= decision :escalate)
-      (let [proposal (:proposal state)
-            fact {:op :proposal-escalated :proposal proposal :timestamp (System/currentTimeMillis)}]
-        (store/append-ledger! store fact)
-        (assoc state :execution :escalated))
-      state)))
+      (g/add-node :request-approval
+        (fn [{:keys [approval]}]
+          (if (= :approved (:status approval))
+            {:decision :commit}
+            {:decision :hold :reason "Human rejected escalation"})))
 
-(defn hold-node
-  "Log hold (governor rejection) to audit ledger."
-  [state store _ctx]
-  (let [decision (:decision state)]
-    (if (= decision :hold)
-      (let [proposal (:proposal state)
-            check-result (:check-result state)
-            fact {:op :proposal-held :proposal proposal :violations (:violations check-result) :timestamp (System/currentTimeMillis)}]
-        (store/append-ledger! store fact)
-        (assoc state :execution :held))
-      state)))
+      (g/add-node :commit
+        (fn [{:keys [proposal approval]}]
+          (let [record {:proposal proposal :decision :committed
+                         :timestamp (System/currentTimeMillis)}]
+            (store/commit-record! store record)
+            (store/append-ledger! store
+              (cond-> {:op :proposal-committed :record record}
+                (:by approval) (assoc :approved-by (:by approval))))
+            {:execution :committed})))
 
-;; Simple workflow runner for testing (not using langgraph-clj StateGraph machinery yet)
-(defn run-proposal
-  "Simple workflow runner: intake → advise → govern → decide → {commit|hold|escalate}."
-  [store request advisor-impl phase-num]
-  (let [state (intake-state request)]
-    (if (= (:decision state) :hold)
-      state
-      (let [state (advise-node state store advisor-impl nil)]
-        (if (:proposal state)
-          (let [state (govern-node state store nil)]
-            (if (:check-result state)
-              (let [state (decide-node state store phase-num nil)]
-                (case (:decision state)
-                  :commit (commit-node state store nil)
-                  :escalate (escalate-node state store nil)
-                  :hold (hold-node state store nil)
-                  state))
-              state))
-          state)))))
+      (g/add-node :hold
+        (fn [{:keys [proposal check-result approval]}]
+          (store/append-ledger! store
+            (cond-> {:op :proposal-held :proposal proposal
+                     :violations (:violations check-result)
+                     :timestamp (System/currentTimeMillis)}
+              (= :rejected (:status approval)) (assoc :approval-rejected-by (:by approval))))
+          {:execution :held}))
+
+      (g/set-entry-point :intake)
+
+      (g/add-conditional-edges :intake
+        (fn [{:keys [decision]}]
+          (if (= :hold decision) :hold :advise)))
+
+      (g/add-edge :advise :govern)
+      (g/add-edge :govern :decide)
+
+      (g/add-conditional-edges :decide
+        (fn [{:keys [decision]}]
+          (case decision
+            :commit   :commit
+            :escalate :escalate
+            :hold)))
+
+      (g/add-edge :escalate :request-approval)
+
+      (g/add-conditional-edges :request-approval
+        (fn [{:keys [decision]}]
+          (if (= :commit decision) :commit :hold)))
+
+      (g/set-finish-point :commit)
+      (g/set-finish-point :hold)
+
+      (g/compile-graph
+       {:checkpointer     checkpointer
+        :interrupt-before #{:request-approval}})))
