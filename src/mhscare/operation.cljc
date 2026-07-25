@@ -139,7 +139,7 @@
         (fn [{:keys [proposal]}]
           (store/append-ledger! store {:op :proposal-escalated
                                         :proposal proposal
-                                        :timestamp (System/currentTimeMillis)})
+                                        :timestamp #?(:clj (System/currentTimeMillis) :cljs (.getTime (js/Date.)))})
           {:execution :escalated}))
 
       (g/add-node :request-approval
@@ -151,7 +151,7 @@
       (g/add-node :commit
         (fn [{:keys [proposal approval]}]
           (let [record {:proposal proposal :decision :committed
-                         :timestamp (System/currentTimeMillis)}]
+                         :timestamp #?(:clj (System/currentTimeMillis) :cljs (.getTime (js/Date.)))}]
             (store/commit-record! store record)
             (store/append-ledger! store
               (cond-> {:op :proposal-committed :record record}
@@ -163,7 +163,7 @@
           (store/append-ledger! store
             (cond-> {:op :proposal-held :proposal proposal
                      :violations (:violations check-result)
-                     :timestamp (System/currentTimeMillis)}
+                     :timestamp #?(:clj (System/currentTimeMillis) :cljs (.getTime (js/Date.)))}
               (= :rejected (:status approval)) (assoc :approval-rejected-by (:by approval))))
           {:execution :held}))
 
