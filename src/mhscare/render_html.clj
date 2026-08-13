@@ -338,7 +338,7 @@
 (defn- record-rows [db commit-pairs]
   (let [records (vec (store/coordination-log db))]
     (map-indexed
-     (fn [i {:keys [run fact]}]
+     (fn [i {:keys [fact]}]
        (let [record (get records i)
              proposal (:proposal (:record fact))]
          (row (code (kw (:op proposal)))
@@ -352,10 +352,34 @@
               ;; approver on the AUDIT FACT, scanned at render time
               (if-let [by (approver-of fact)]
                 (code by)
-                (muted "auto-committed &middot; no human approver")))))
+                (muted "auto-committed · no human approver")))))
      commit-pairs)))
 
-(defn- contract-rows []
+(defn- observed-cell
+  "What the op ACTUALLY did in this build's runs. Derived, not
+  described -- this is where the gate column and reality can disagree,
+  and when they do the disagreement is the interesting fact rather
+  than something to smooth over."
+  [runs op]
+  (let [rs (filter #(= op (:op (:request %))) runs)]
+    (if (empty? rs)
+      (muted "not exercised in this run")
+      (str/join " &middot; "
+                (distinct
+                 (for [r rs]
+                   (let [refusal (first (filter governor-refusal? (hold-facts r)))]
+                     (cond
+                       refusal
+                       (str "<span class=\"critical\">HARD refused &middot; "
+                            (esc (str/join ", " (map #(kw (:rule %)) (:violations refusal))))
+                            "</span>")
+                       (= :committed (:execution (:state r)))
+                       "<span class=\"ok\">committed</span>"
+                       (= :held (:execution (:state r)))
+                       "<span class=\"warn\">held (no governor violation)</span>"
+                       :else (muted (kw (:status r)))))))))))
+
+(defn- contract-rows [runs]
   (for [op (sort-by name governor/allowed-ops)]
     (row (code (kw op))
          (if (contains? governor/always-escalate-ops op)
@@ -368,7 +392,7 @@
                     (str/join ", " auto-phases)
                     "</span> &middot; <span class=\"warn\">human approval below that</span>")
                "<span class=\"warn\">human approval at every phase</span>")))
-         (muted "effect must be :propose · resident must be registered AND verified"))))
+         (observed-cell runs op))))
 
 (defn- phase-rows []
   (for [[n rules] (sort-by key phase/phase-rules)]
@@ -376,7 +400,7 @@
          (code (kw (:name rules)))
          (if (seq (:auto rules))
            (str/join ", " (map #(code (kw %)) (sort-by name (:auto rules))))
-           (muted "nothing auto-commits &middot; everything needs a human")))))
+           (muted "nothing auto-commits · everything needs a human")))))
 
 (defn- ledger-rows [db]
   (for [f (store/ledger db)]
@@ -499,12 +523,14 @@
 
      (section
       "Closed op contract (MhsCareGovernor)"
-      (str "Rendered from <code>governor/allowed-ops</code>, "
+      (str "The gate column is rendered from <code>governor/allowed-ops</code>, "
            "<code>governor/always-escalate-ops</code> and <code>phase/phase-rules</code> — "
            "the actual vars, not a description of them. Anything outside this allowlist is "
-           "refused as <code>:op-not-allowed</code>.")
-      (table ["Op" "Gate" "Always also required"]
-             (contract-rows)))
+           "refused as <code>:op-not-allowed</code>. The last column is what the op actually "
+           "did in this build, so the two can visibly disagree: an op the phase gate would "
+           "auto-commit is still refused outright if the governor refuses it first.")
+      (table ["Op" "Gate" "Observed in this build"]
+             (contract-rows runs)))
 
      (section
       "Rollout phase gate"

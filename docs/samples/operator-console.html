@@ -2538,8 +2538,8 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
     <table>
       <thead><tr><th>Op</th><th>Resident</th><th>Summary</th><th>Decision</th><th>Approver on record</th><th>Approver in audit ledger</th></tr></thead>
       <tbody>
-        <tr><td><code>log-resident-note</code></td><td><code>resident-1</code></td><td>Daily care note</td><td>committed</td><td><span class="muted">not on record</span></td><td><span class="muted">auto-committed &amp;middot; no human approver</span></td></tr>
-        <tr><td><code>schedule-family-or-guardian-visit</code></td><td><code>resident-2</code></td><td>Schedule family visit</td><td>committed</td><td><span class="muted">not on record</span></td><td><span class="muted">auto-committed &amp;middot; no human approver</span></td></tr>
+        <tr><td><code>log-resident-note</code></td><td><code>resident-1</code></td><td>Daily care note</td><td>committed</td><td><span class="muted">not on record</span></td><td><span class="muted">auto-committed · no human approver</span></td></tr>
+        <tr><td><code>schedule-family-or-guardian-visit</code></td><td><code>resident-2</code></td><td>Schedule family visit</td><td>committed</td><td><span class="muted">not on record</span></td><td><span class="muted">auto-committed · no human approver</span></td></tr>
         <tr><td><code>schedule-staff-shift-proposal</code></td><td><code>resident-1</code></td><td>Staff shift proposal</td><td>committed</td><td><span class="muted">not on record</span></td><td><code>clinician-01</code></td></tr>
         <tr><td><code>flag-safety-concern</code></td><td><code>resident-1</code></td><td>Safety concern flagged</td><td>committed</td><td><span class="muted">not on record</span></td><td><code>clinician-01</code></td></tr>
       </tbody>
@@ -2547,15 +2547,15 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
   </section>
   <section class="card">
     <h2>Closed op contract (MhsCareGovernor)</h2>
-    <p class="muted">Rendered from <code>governor/allowed-ops</code>, <code>governor/always-escalate-ops</code> and <code>phase/phase-rules</code> — the actual vars, not a description of them. Anything outside this allowlist is refused as <code>:op-not-allowed</code>.</p>
+    <p class="muted">The gate column is rendered from <code>governor/allowed-ops</code>, <code>governor/always-escalate-ops</code> and <code>phase/phase-rules</code> — the actual vars, not a description of them. Anything outside this allowlist is refused as <code>:op-not-allowed</code>. The last column is what the op actually did in this build, so the two can visibly disagree: an op the phase gate would auto-commit is still refused outright if the governor refuses it first.</p>
     <table>
-      <thead><tr><th>Op</th><th>Gate</th><th>Always also required</th></tr></thead>
+      <thead><tr><th>Op</th><th>Gate</th><th>Observed in this build</th></tr></thead>
       <tbody>
-        <tr><td><code>coordinate-supply-request</code></td><td><span class="ok">auto-commit at phase 3</span> &middot; <span class="warn">human approval below that</span></td><td><span class="muted">effect must be :propose · resident must be registered AND verified</span></td></tr>
-        <tr><td><code>flag-safety-concern</code></td><td><span class="warn">ALWAYS escalates to a human &middot; never auto at any phase</span></td><td><span class="muted">effect must be :propose · resident must be registered AND verified</span></td></tr>
-        <tr><td><code>log-resident-note</code></td><td><span class="ok">auto-commit at phase 3</span> &middot; <span class="warn">human approval below that</span></td><td><span class="muted">effect must be :propose · resident must be registered AND verified</span></td></tr>
-        <tr><td><code>schedule-family-or-guardian-visit</code></td><td><span class="ok">auto-commit at phase 3</span> &middot; <span class="warn">human approval below that</span></td><td><span class="muted">effect must be :propose · resident must be registered AND verified</span></td></tr>
-        <tr><td><code>schedule-staff-shift-proposal</code></td><td><span class="ok">auto-commit at phase 3</span> &middot; <span class="warn">human approval below that</span></td><td><span class="muted">effect must be :propose · resident must be registered AND verified</span></td></tr>
+        <tr><td><code>coordinate-supply-request</code></td><td><span class="ok">auto-commit at phase 3</span> &middot; <span class="warn">human approval below that</span></td><td><span class="critical">HARD refused &middot; scope-excluded</span></td></tr>
+        <tr><td><code>flag-safety-concern</code></td><td><span class="warn">ALWAYS escalates to a human &middot; never auto at any phase</span></td><td><span class="ok">committed</span> &middot; <span class="warn">held (no governor violation)</span></td></tr>
+        <tr><td><code>log-resident-note</code></td><td><span class="ok">auto-commit at phase 3</span> &middot; <span class="warn">human approval below that</span></td><td><span class="ok">committed</span> &middot; <span class="critical">HARD refused &middot; resident-unverified</span> &middot; <span class="warn">held (no governor violation)</span></td></tr>
+        <tr><td><code>schedule-family-or-guardian-visit</code></td><td><span class="ok">auto-commit at phase 3</span> &middot; <span class="warn">human approval below that</span></td><td><span class="ok">committed</span></td></tr>
+        <tr><td><code>schedule-staff-shift-proposal</code></td><td><span class="ok">auto-commit at phase 3</span> &middot; <span class="warn">human approval below that</span></td><td><span class="ok">committed</span></td></tr>
       </tbody>
     </table>
   </section>
@@ -2565,9 +2565,9 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
     <table>
       <thead><tr><th>Phase</th><th>Name</th><th>Auto-commits</th></tr></thead>
       <tbody>
-        <tr><td>0</td><td><code>read-only</code></td><td><span class="muted">nothing auto-commits &amp;middot; everything needs a human</span></td></tr>
-        <tr><td>1</td><td><code>intake-gated</code></td><td><span class="muted">nothing auto-commits &amp;middot; everything needs a human</span></td></tr>
-        <tr><td>2</td><td><code>coordination-gated</code></td><td><span class="muted">nothing auto-commits &amp;middot; everything needs a human</span></td></tr>
+        <tr><td>0</td><td><code>read-only</code></td><td><span class="muted">nothing auto-commits · everything needs a human</span></td></tr>
+        <tr><td>1</td><td><code>intake-gated</code></td><td><span class="muted">nothing auto-commits · everything needs a human</span></td></tr>
+        <tr><td>2</td><td><code>coordination-gated</code></td><td><span class="muted">nothing auto-commits · everything needs a human</span></td></tr>
         <tr><td>3</td><td><code>auto-commit</code></td><td><code>coordinate-supply-request</code>, <code>log-resident-note</code>, <code>schedule-family-or-guardian-visit</code>, <code>schedule-staff-shift-proposal</code></td></tr>
       </tbody>
     </table>
