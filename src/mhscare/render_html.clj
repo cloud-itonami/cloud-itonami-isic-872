@@ -55,7 +55,11 @@
   Lopez -- registered+verified, `resident-3` Sophie Chen -- registered
   but NOT verified). `:approval`, when present, is the human decision
   fed back into the SAME graph via `:resume?` after it interrupts at
-  `:request-approval`.
+  `:request-approval`; the approver id is `clinician-01`, the only
+  human id this repo has anywhere (`test/mhscare/operation_test.clj`)
+  -- this repo's `Store` has no staff/clinician directory to draw a
+  second one from, and inventing one would put an untraceable id on
+  the page.
 
   Between them these reach every disposition this actor can produce:
   auto-commit, rollout-gate escalation -> approval -> commit,
@@ -76,7 +80,7 @@
     :label "Staff shift proposal at phase 1 (rollout gate, not the governor)"
     :request {:op :schedule-staff-shift-proposal :resident-id "resident-1"}
     :phase 1
-    :approval {:status :approved :by "coordinator-02"}}
+    :approval {:status :approved :by "clinician-01"}}
 
    {:id "s4-safety-r1-approved"
     :label "Safety concern -- ALWAYS escalates, clinician approves"
