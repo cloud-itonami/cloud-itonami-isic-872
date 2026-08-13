@@ -9,6 +9,14 @@
  ;; reason).
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         org.clojure/clojurescript {:mvn/version "1.10.914"}
+        ;; DADS (デジタル庁デザインシステム) — the workspace's base design
+        ;; system. `jp-go-dds.skin/dds+skin` styles the build-time operator
+        ;; console (`:render-html`). Pinned by :git/sha, NOT :local/root:
+        ;; this library's own deps.edn documents that a :local/root consumer
+        ;; breaks its transitive "../html" resolution.
+        io.github.kotoba-lang/jp-go-digital-design-system
+        {:git/url "https://github.com/kotoba-lang/jp-go-digital-design-system"
+         :git/sha "83db99546eabc53613ae826ea41d1533a3c574af"}
         io.github.kotoba-lang/langgraph
         {:local/root "../../kotoba-lang/langgraph"}}
  :aliases
@@ -26,4 +34,10 @@
          :main-opts    ["-m" "clj-kondo.main"
                         "--lint" "src" "test"
                         "--fail-level" "error"]}
-  :run {:exec-fn mhscare.sim/run-demo}}}
+  :run {:exec-fn mhscare.sim/run-demo}
+  ;; clojure -M:render-html [out-file] -> regenerate
+  ;; docs/samples/operator-console.html by RUNNING the real actor
+  ;; (compiled langgraph StateGraph -> MhsCareGovernor -> store).
+  ;; Refuses to write the file if the run produced no HARD governor
+  ;; refusal (flagship checklist item 2).
+  :render-html {:main-opts ["-m" "mhscare.render-html"]}}}
