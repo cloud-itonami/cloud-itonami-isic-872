@@ -12,7 +12,7 @@
 
   One ESCALATE (SOFT) gate: LLM confidence below floor, OR the op
   is `:flag-safety-concern` -- ALWAYS escalates to human."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [mhscare.store :as store]))
 
 (def confidence-floor 0.6)
@@ -57,7 +57,7 @@
 
 (defn- text-blob
   [proposal]
-  (str/lower-case (pr-str (select-keys proposal [:op :summary :rationale :cites :value]))))
+  (str/lower (pr-str (select-keys proposal [:op :summary :rationale :cites :value]))))
 
 (defn- scope-exclusion-violations
   [proposal]
