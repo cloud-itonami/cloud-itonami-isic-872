@@ -41,7 +41,7 @@
   `:schedule-staff-shift-proposal` / `:flag-safety-concern`), all
   `:effect :propose` only. `:flag-safety-concern` ALWAYS escalates to
   a human clinician via the compiled graph's `:request-approval` node,
-  proven by `test/mhscare/operation_test.clj` exercising commit /
+  proven by `test/mhscare/operation_test.kotoba` exercising commit /
   hard-hold (unverified resident) / invalid-request-hold-at-intake /
   phase-escalate / escalate-approve / escalate-reject through the REAL
   compiled graph end to end, plus a `clojure -X:run` demo runner
