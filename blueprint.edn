@@ -44,7 +44,7 @@
   proven by `test/mhscare/operation_test.kotoba` exercising commit /
   hard-hold (unverified resident) / invalid-request-hold-at-intake /
   phase-escalate / escalate-approve / escalate-reject through the REAL
-  compiled graph end to end, plus a `clojure -X:run` demo runner
+  compiled graph end to end, plus a `kbb -X:run` demo runner
   producing real ledger entries. 45 tests / 124 assertions green
-  (`clojure -M:dev:test`), clj-kondo 0 errors (`clojure -M:lint`)."
+  (`kbb -M:dev:test`), clj-kondo 0 errors (`kbb -M:lint`)."
   :db/id -1}]
