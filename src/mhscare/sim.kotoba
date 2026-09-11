@@ -7,7 +7,7 @@
             [mhscare.store :as store]))
 
 (defn run-demo
-  "`:exec-fn` entry point for `clojure -X:run` -- takes (and ignores) the
+  "`:exec-fn` entry point for `kbb -X:run` -- takes (and ignores) the
   kwargs map `-X` always passes."
   [& [_opts]]
   (let [s (store/seed-db)

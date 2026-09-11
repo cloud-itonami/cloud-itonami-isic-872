@@ -1,8 +1,8 @@
 # Contributing
 
 Please ensure all changes:
-1. Pass `clojure -M:lint` (zero errors)
-2. Pass `clojure -M:dev:test` (all tests pass)
+1. Pass `kbb -M:lint` (zero errors)
+2. Pass `kbb -M:dev:test` (all tests pass)
 3. Do not circumvent the Governor's three HARD checks
 4. Respect the closed proposal-op allowlist
 
