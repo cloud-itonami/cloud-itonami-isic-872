@@ -20,10 +20,11 @@
         ;; this library's own deps.edn documents that a :local/root consumer
         ;; breaks its transitive "../html" resolution.
         io.github.kotoba-lang/jp-go-digital-design-system
-        {:git/url "https://github.com/kotoba-lang/jp-go-digital-design-system"
-         :git/sha "83db99546eabc53613ae826ea41d1533a3c574af"}
+        {:git/url "https://github.com/kotoba-lang/kotoba.git"
+         :git/sha "e09192276fd6a111dfb9959bfc75ddeba555e840"
+         :deps/root "lib/kotoba.jpGoDigitalDesignSystem"}
         io.github.kotoba-lang/langgraph
-        {:local/root "../../kotoba-lang/langgraph"}}
+        {:local/root "../../kotoba-lang/kotoba/lib/kotoba.langgraph"}}
  :aliases
  {;; offline workspace dev -- pin transitive langchain to local checkout
   :dev {:override-deps
